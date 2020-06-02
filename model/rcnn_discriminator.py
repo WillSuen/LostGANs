@@ -57,7 +57,7 @@ class ResnetDiscriminator128(nn.Module):
 
         # obj path
         # seperate different path
-        s_idx = (bbox[:, 3] < 64) * (bbox[:, 4] < 64)
+        s_idx = ((bbox[:, 3] - bbox[:, 1]) < 64) * ((bbox[:, 4] - bbox[:, 2]) < 64)
         bbox_l, bbox_s = bbox[1-s_idx], bbox[s_idx]
         y_l, y_s = y[1-s_idx], y[s_idx]
 
@@ -133,6 +133,74 @@ class ResnetDiscriminator64(nn.Module):
             if k[0][-4:] == 'bias':
                 torch.nn.init.constant_(k[1], 0)
 
+    
+class ResnetDiscriminator256(nn.Module):
+    def __init__(self, num_classes=0, input_dim=3, ch=64):
+        super(ResnetDiscriminator256, self).__init__()
+        self.num_classes = num_classes
+
+        self.block1 = OptimizedBlock(3, ch, downsample=True)
+        self.block2 = ResBlock(ch, ch*2, downsample=True)
+        self.block3 = ResBlock(ch*2, ch*4, downsample=True)
+        self.block4 = ResBlock(ch*4, ch*8, downsample=True)
+        self.block5 = ResBlock(ch*8, ch*8, downsample=True)
+        self.block6 = ResBlock(ch*8, ch*16, downsample=True)
+        self.block7 = ResBlock(ch*16, ch*16, downsample=False)
+        self.l8 = nn.utils.spectral_norm(nn.Linear(ch * 16, 1))
+        self.activation = nn.ReLU()
+
+        self.roi_align_s = ROIAlign((8, 8), 1.0 / 8.0, int(0))
+        self.roi_align_l = ROIAlign((8, 8), 1.0 / 16.0, int(0))
+
+        self.block_obj4 = ResBlock(ch*4, ch*8, downsample=False)
+        self.block_obj5 = ResBlock(ch*8, ch*8, downsample=False)
+        self.block_obj6 = ResBlock(ch*8, ch*16, downsample=True)
+        self.l_obj = nn.utils.spectral_norm(nn.Linear(ch * 16, 1))
+        self.l_y = nn.utils.spectral_norm(nn.Embedding(num_classes, ch*16))
+
+    def forward(self, x, y=None, bbox=None):
+        b = bbox.size(0)
+        # 256x256
+        x = self.block1(x)
+        # 128x128
+        x = self.block2(x)
+        # 64x64
+        x1 = self.block3(x)
+        # 32x32
+        x2 = self.block4(x1)
+        # 16x16
+        x = self.block5(x2)
+        # 8x8
+        x = self.block6(x)
+        # 4x4
+        x = self.block7(x)
+        x = self.activation(x)
+        x = torch.sum(x, dim=(2, 3))
+        out_im = self.l8(x)
+
+        # obj path
+        # seperate different path
+        s_idx = ((bbox[:, 3] - bbox[:, 1]) < 128) * ((bbox[:, 4] - bbox[:, 2]) < 128)
+        bbox_l, bbox_s = bbox[~s_idx], bbox[s_idx]
+        y_l, y_s = y[~s_idx], y[s_idx]
+
+        obj_feat_s = self.block_obj4(x1)
+        obj_feat_s = self.block_obj5(obj_feat_s)
+        obj_feat_s = self.roi_align_s(obj_feat_s, bbox_s)
+
+        obj_feat_l = self.block_obj5(x2)
+        obj_feat_l = self.roi_align_l(obj_feat_l, bbox_l)
+
+        obj_feat = torch.cat([obj_feat_l, obj_feat_s], dim=0)
+        y = torch.cat([y_l, y_s], dim=0)
+        obj_feat = self.block_obj6(obj_feat)
+        obj_feat = self.activation(obj_feat)
+        obj_feat = torch.sum(obj_feat, dim=(2, 3))
+        out_obj = self.l_obj(obj_feat)
+        out_obj = out_obj + torch.sum(self.l_y(y).view(b, -1) * obj_feat.view(b, -1), dim=1, keepdim=True)
+
+        return out_im, out_obj
+
 
 class OptimizedBlock(nn.Module):
     def __init__(self, in_ch, out_ch, ksize=3, pad=1, downsample=False):
@@ -155,7 +223,7 @@ class OptimizedBlock(nn.Module):
         if self.downsample:
             x = F.avg_pool2d(x, 2)
         return self.c_sc(x)
-
+    
 
 class ResBlock(nn.Module):
     def __init__(self, in_ch, out_ch, ksize=3, pad=1, downsample=False):
@@ -187,6 +255,29 @@ class ResBlock(nn.Module):
         return self.residual(in_feat) + self.shortcut(in_feat)
 
 
+class CombineDiscriminator256(nn.Module):
+    def __init__(self, num_classes=81):
+        super(CombineDiscriminator256, self).__init__()
+        self.obD = ResnetDiscriminator256(num_classes=num_classes, input_dim=3)
+
+    def forward(self, images, bbox, label, mask=None):
+        idx = torch.arange(start=0, end=images.size(0),
+                           device=images.device).view(images.size(0),
+                                                      1, 1).expand(-1, bbox.size(1), -1).float()
+        bbox[:, :, 2] = bbox[:, :, 2] + bbox[:, :, 0]
+        bbox[:, :, 3] = bbox[:, :, 3] + bbox[:, :, 1]
+        bbox = bbox * images.size(2)
+        bbox = torch.cat((idx, bbox.float()), dim=2)
+        bbox = bbox.view(-1, 5)
+        label = label.view(-1)
+
+        idx = (label != 0).nonzero().view(-1)
+        bbox = bbox[idx]
+        label = label[idx]
+        d_out_img, d_out_obj = self.obD(images, label, bbox)
+        return d_out_img, d_out_obj
+    
+
 class CombineDiscriminator128(nn.Module):
     def __init__(self, num_classes=81):
         super(CombineDiscriminator128, self).__init__()
@@ -210,9 +301,9 @@ class CombineDiscriminator128(nn.Module):
         return d_out_img, d_out_obj
 
 
-class CombineDiscriminator(nn.Module):
+class CombineDiscriminator64(nn.Module):
     def __init__(self, num_classes=81):
-        super(CombineDiscriminator, self).__init__()
+        super(CombineDiscriminator64, self).__init__()
         self.obD = ResnetDiscriminator64(num_classes=num_classes, input_dim=3)
 
     def forward(self, images, bbox, label, mask=None):

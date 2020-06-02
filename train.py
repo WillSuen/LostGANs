@@ -14,7 +14,7 @@ from torchvision.utils import make_grid
 from utils.util import *
 from data.cocostuff_loader import *
 from data.vg import *
-from model.resnet_generator import *
+from model.resnet_generator_v2 import *
 from model.rcnn_discriminator import *
 from model.sync_batchnorm import DataParallelWithCallback
 from utils.logger import setup_logger
@@ -87,6 +87,9 @@ def main(args):
     logger.info(netD)
 
     start_time = time.time()
+    vgg_loss = VGGLoss()
+    vgg_loss = nn.DataParallel(vgg_loss)
+    l1_loss = nn.DataParallel(nn.L1Loss())
     for epoch in range(args.total_epoch):
         netG.train()
         netD.train()
@@ -118,8 +121,11 @@ def main(args):
                 g_out_fake, g_out_obj = netD(fake_images, bbox, label)
                 g_loss_fake = - g_out_fake.mean()
                 g_loss_obj = - g_out_obj.mean()
+                
+                pixel_loss = l1_loss(fake_images, real_images).mean()
+                feat_loss = vgg_loss(fake_images, real_images).mean()
 
-                g_loss = g_loss_obj * lamb_obj + g_loss_fake * lamb_img
+                g_loss = g_loss_obj * lamb_obj + g_loss_fake * lamb_img + pixel_loss + feat_loss
                 g_loss.backward()
                 g_optimizer.step()
 
@@ -136,6 +142,7 @@ def main(args):
                                                                                                         d_loss_robj.item(),
                                                                                                         d_loss_fobj.item(),
                                                                                                         g_loss_obj.item()))
+                logger.info("             pixel_loss: {:.4f}, feat_loss: {:.4f}".format(pixel_loss.item(), feat_loss.item()))
 
                 writer.add_image("real images", make_grid(real_images.cpu().data * 0.5 + 0.5, nrow=4), epoch*len(dataloader) + idx + 1)
                 writer.add_image("fake images", make_grid(fake_images.cpu().data * 0.5 + 0.5, nrow=4), epoch*len(dataloader) + idx + 1)

@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from data.cocostuff_loader import *
 from data.vg import *
-from model.resnet_generator import *
+from model.resnet_generator_v2 import *
 from utils.util import *
 
 

@@ -149,18 +149,16 @@ class SpatialAdaptiveBatchNorm2d(nn.BatchNorm2d):
 from .sync_batchnorm import SynchronizedBatchNorm2d
 
 
-class SpatialAdaptiveSynBatchNorm2d(nn.BatchNorm2d):
-    def __init__(self, num_features, num_w=512, eps=1e-5, momentum=0.1, affine=False,
+class SpatialAdaptiveSynBatchNorm2d(nn.Module):
+    def __init__(self, num_features, num_w=512, batchnorm_func=SynchronizedBatchNorm2d, eps=1e-5, momentum=0.1, affine=False,
                  track_running_stats=True):
-        super(SpatialAdaptiveSynBatchNorm2d, self).__init__(
-            num_features, eps, momentum, affine, track_running_stats
-        )
+        super(SpatialAdaptiveSynBatchNorm2d, self).__init__()
         # projection layer
+        self.num_features = num_features
         self.weight_proj = nn.utils.spectral_norm(nn.Linear(num_w, num_features))
         self.bias_proj = nn.utils.spectral_norm(nn.Linear(num_w, num_features))
-        # self.weight_proj = nn.Linear(num_w, num_features)
-        # self.bias_proj = nn.Linear(num_w, num_features)
-        self.batch_norm2d = SynchronizedBatchNorm2d(num_features, eps=self.eps, affine=False)
+        self.batch_norm2d = batchnorm_func(num_features, eps=eps, momentum=momentum,
+                                           affine=affine)
 
     def forward(self, x, vector, bbox):
         """
@@ -169,12 +167,13 @@ class SpatialAdaptiveSynBatchNorm2d(nn.BatchNorm2d):
         :param bbox: bbox map (b, o, h, w)
         :return:
         """
-        self._check_input_dim(x)
+        # self._check_input_dim(x)
         output = self.batch_norm2d(x)
 
-        b, o, _, _ = bbox.size()
+        b, o, bh, bw = bbox.size()
         _, _, h, w = x.size()
-        bbox = F.interpolate(bbox, size=(h, w), mode='bilinear')
+        if bh != h or bw != w:
+            bbox = F.interpolate(bbox, size=(h, w), mode='bilinear')
         # calculate weight and bias
         weight, bias = self.weight_proj(vector), self.bias_proj(vector)
 

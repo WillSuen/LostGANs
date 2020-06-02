@@ -1,5 +1,6 @@
 # LostGANs: Image Synthesis From Reconfigurable Layout and Style
-This is implementation of our ICCV19 paper [**Image Synthesis From Reconfigurable Layout and Style**](https://arxiv.org/abs/1908.07500)
+This is implementation of our paper [**Image Synthesis From Reconfigurable Layout and Style**](https://arxiv.org/abs/1908.07500) and [**Learning Layout and Style Reconfigurable GANs for Controllable Image Synthesis**](https://arxiv.org/abs/2003.11571)
+
 
 ## Network Structure
 ![network_structure](./figures/network_structure.png)
@@ -7,9 +8,7 @@ This is implementation of our ICCV19 paper [**Image Synthesis From Reconfigurabl
 ## Installation
 Check [INSTALL.md](INSTALL.md) for installation instructions.
 #### 1. Download pretrained model
-Download pretrained models to `pretrained_model/`
-* Pretrained model on [COCO](https://drive.google.com/open?id=1WO6fLZqJeTUnmJTmieUopKLj9KGBhGd6)
-* Pretrained model on [VG](https://drive.google.com/open?id=1A_gP_WwZWonlXJhwcdBDgHuVaGSiVjMO)
+Download pretrained [models](https://drive.google.com/drive/folders/1peI9d4PI7jJZJzFTcr-5mwZqnrNsX_3p?usp=sharing) to `pretrained_model/`
 
 #### 2. Train models
 ```
@@ -23,12 +22,10 @@ python test.py --dataset coco --model_path pretrained_model/G_coco.pth --sample_
 
 
 ## Results
+###### Compare different models
+![compare](./figures/generated_images.png)
 ###### Multiple samples generated from same layout
 ![various_out](./figures/various_outs.png)
-###### Generation results by adding new objects or change spatial position of object
-![add_obj](./figures/add_obj.png)
-###### Linear interpolation of instance style
-![style_morph](./figures/style_morph.png)
 ###### Synthesized images and learned masks for given layout
 ![mask](./figures/mask.png)
 
