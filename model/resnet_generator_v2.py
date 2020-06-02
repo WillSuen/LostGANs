@@ -42,7 +42,7 @@ class ResnetGenerator128(nn.Module):
         self.mask_regress = MaskRegressNetv2(num_w)
         self.init_parameter()
 
-    def forward(self, z, bbox, z_im=None, y=None, include_mask_loss=False):
+    def forward(self, z, bbox, z_im=None, y=None):
         b, o = z.size(0), z.size(1)
         label_embedding = self.label_embedding(y)
 
